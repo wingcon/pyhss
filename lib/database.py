@@ -1673,8 +1673,8 @@ class Database:
             self.Update_AuC(auc_id, sqn=key_data['sqn']+100)
             return vector_dict
 
-        elif action == "Digest-MD5":
-            self.logTool.log(service='Database', level='debug', message="Generating Digest-MD5 Auth vectors", redisClient=self.redisMessaging)
+        elif action == "Digest-MD5" or action == "Digest-SHA-256" or action == "Digest-SHA-512-256":
+            self.logTool.log(service='Database', level='debug', message="Generating " + action + " Auth vectors", redisClient=self.redisMessaging)
             self.logTool.log(service='Database', level='debug', message="key_data: " + str(key_data), redisClient=self.redisMessaging)
             nonce = uuid.uuid4().hex
             #nonce = "beef4d878f2642ed98afe491b943ca60"

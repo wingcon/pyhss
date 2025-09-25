@@ -2893,7 +2893,7 @@ class Diameter:
                 ims_subscriber_details = self.database.Get_IMS_Subscriber(msisdn=user)
             else:
                 self.logTool.log(service='HSS', level='debug', message="Extracted IMSI: " + str(user) + " now checking backend for this IMSI", redisClient=self.redisMessaging)
-                ims_subscriber_details = self.database.Get_IMS_Subscriber(imsi=user)            
+                ims_subscriber_details = self.database.Get_IMS_Subscriber(imsi=user)
         except Exception as E:
             self.logTool.log(service='HSS', level='debug', message="Threw Exception: " + str(E), redisClient=self.redisMessaging)
             self.logTool.log(service='HSS', level='debug', message=f"No known MSISDN or IMSI in Answer_16777216_300()", redisClient=self.redisMessaging)
@@ -3129,6 +3129,7 @@ class Diameter:
         user = username.split('@')[0]   #Strip Domain
         domain = username.split('@')[1] #Get Domain Part
         self.logTool.log(service='HSS', level='debug', message="Got MAR username: " + str(username), redisClient=self.redisMessaging)
+        auth_schemes = ["Digest-MD5", "Digest-SHA-256", "Digest-SHA-512-256"]
         auth_scheme = ''
 
         avp = ''                                                                                    #Initiate empty var AVP
@@ -3207,20 +3208,26 @@ class Diameter:
     
 
         #Determine Vectors to Generate
-        if auth_scheme == "Digest-MD5":
-            self.logTool.log(service='HSS', level='debug', message="Generating MD5 Challenge", redisClient=self.redisMessaging)
-            vector_dict = self.database.Get_Vectors_AuC(subscriber_details['auc_id'], "Digest-MD5", username=imsi, plmn=plmn)
-            avp_SIP_Item_Number = self.generate_vendor_avp(613, "c0", 10415, format(int(0),"x").zfill(8))
-            avp_SIP_Authentication_Scheme = self.generate_vendor_avp(608, "c0", 10415, str(binascii.hexlify(b'Digest-MD5'),'ascii'))
-            #Nonce
+        if auth_scheme in auth_schemes:
+            # Digest-MD5, Digest-SHA-256, Digest-SHA-512-256
+            self.logTool.log(service='HSS', level="debug", message=f"Generating {auth_scheme} Auth Challenge", redisClient=self.redisMessaging)
+            vector_dict = self.database.Get_Vectors_AuC(subscriber_details['auc_id'], auth_scheme, username=imsi, plmn=plmn)
+            avp_SIP_Item_Number = self.generate_vendor_avp(613, "c0", 10415, format(0, "x").zfill(8))
+            avp_SIP_Authentication_Scheme = self.generate_vendor_avp(608, "c0", 10415, str(binascii.hexlify(auth_scheme.encode()), 'ascii'))
             avp_SIP_Authenticate = self.generate_vendor_avp(609, "c0", 10415, str(vector_dict['nonce']))
-            #Expected Response
-            avp_SIP_Authorization = self.generate_vendor_avp(610, "c0", 10415,  str(binascii.hexlify(str.encode(vector_dict['SIP_Authenticate'])),'ascii'))
-            auth_data_item = avp_SIP_Item_Number + avp_SIP_Authentication_Scheme + avp_SIP_Authenticate + avp_SIP_Authorization
+            avp_SIP_Authorization = self.generate_vendor_avp(610, "c0", 10415, str(binascii.hexlify(vector_dict['SIP_Authenticate'].encode()), 'ascii'))
+
+            auth_data_item = (
+                avp_SIP_Item_Number
+                + avp_SIP_Authentication_Scheme
+                + avp_SIP_Authenticate
+                + avp_SIP_Authorization
+            )
+
         else:
+            # AKA-MD5 fallback
             self.logTool.log(service='HSS', level='debug', message="Generating AKA-MD5 Auth Challenge", redisClient=self.redisMessaging)
             vector_dict = self.database.Get_Vectors_AuC(subscriber_details['auc_id'], "sip_auth", plmn=plmn)
-        
 
             #diameter.3GPP-SIP-Auth-Data-Items:
 
@@ -3237,7 +3244,15 @@ class Diameter:
             #AVP Code: 626 Integrity-Key
             avp_Integrity_Key = self.generate_vendor_avp(626, "c0", 10415, str(binascii.hexlify(vector_dict['ik']),'ascii'))          #IK
 
-            auth_data_item = avp_SIP_Item_Number + avp_SIP_Authentication_Scheme + avp_SIP_Authenticate + avp_SIP_Authorization + avp_Confidentialility_Key + avp_Integrity_Key
+            auth_data_item = (
+                avp_SIP_Item_Number
+                + avp_SIP_Authentication_Scheme
+                + avp_SIP_Authenticate
+                + avp_SIP_Authorization
+                + avp_Confidentialility_Key
+                + avp_Integrity_Key
+            )
+
         avp += self.generate_vendor_avp(612, "c0", 10415, auth_data_item)    #3GPP-SIP-Auth-Data-Item
             
         avp += self.generate_vendor_avp(607, "c0", 10415, "00000001")                                    #3GPP-SIP-Number-Auth-Items
